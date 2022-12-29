@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 
@@ -11,7 +10,22 @@ import (
 	"github.com/aws/aws-sdk-go/service/sqs"
 )
 
-func ReceiveMessages(sess *session.Session, queueUrl string, chMessage chan<- *sqs.Message) {
+func DeleteMessage(sess *session.Session, queueUrl string, msg *sqs.Message) error {
+	svc := sqs.New(sess)
+
+	_, err := svc.DeleteMessage(&sqs.DeleteMessageInput{
+		QueueUrl:      &queueUrl,
+		ReceiptHandle: msg.ReceiptHandle,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func ReceiveDlqMessages(sess *session.Session, queueUrl string, chMessage chan<- *sqs.Message) {
 	svc := sqs.New(sess)
 
 	for {
@@ -35,21 +49,6 @@ func ReceiveMessages(sess *session.Session, queueUrl string, chMessage chan<- *s
 	}
 }
 
-func DeleteMessage(sess *session.Session, queueUrl string, msg *sqs.Message) error {
-	svc := sqs.New(sess)
-
-	_, err := svc.DeleteMessage(&sqs.DeleteMessageInput{
-		QueueUrl:      &queueUrl,
-		ReceiptHandle: msg.ReceiptHandle,
-	})
-
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 func main() {
 	sess, err := session.NewSessionWithOptions(session.Options{
 		Config: aws.Config{
@@ -62,7 +61,7 @@ func main() {
 		log.Fatalf("Erro ao conectar com a AWS: %v \n", err.Error())
 	}
 
-	queueName := "alura-teste"
+	queueName := "alura-teste-dlq"
 
 	result, err := common.GetQueueUrl(sess, &queueName)
 
@@ -74,23 +73,17 @@ func main() {
 
 	chMessages := make(chan *sqs.Message)
 
-	go ReceiveMessages(sess, queueUrl, chMessages)
+	go ReceiveDlqMessages(sess, queueUrl, chMessages)
 
-	for message := range chMessages {
-		fmt.Println(*message.Body)
+	for msgMorta := range chMessages {
+		fmt.Println(*msgMorta.Body)
 
-		var transfer common.Transferencia
-
-		if err := json.Unmarshal([]byte(*message.Body), &transfer); err != nil {
-			log.Printf("Erro ao fazer o parse da msg: %v", err.Error())
+		if err := DeleteMessage(sess, queueUrl, msgMorta); err != nil {
+			log.Println(err)
 			continue
 		}
 
-		fmt.Println(len(chMessages))
-
-		if err := DeleteMessage(sess, queueUrl, message); err != nil {
-			log.Println("Erro ao excluir a mensagem: ", err.Error())
-		}
+		log.Println("Mensagem processada com sucesso")
 
 	}
 }
