@@ -34,6 +34,21 @@ func ReceiveMessages(sess *session.Session, queueUrl string, chMessage chan<- *s
 	}
 }
 
+func DeleteMessage(sess *session.Session, queueUrl string, msg *sqs.Message) error {
+	svc := sqs.New(sess)
+
+	_, err := svc.DeleteMessage(&sqs.DeleteMessageInput{
+		QueueUrl:      &queueUrl,
+		ReceiptHandle: msg.ReceiptHandle,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func main() {
 	sess, err := session.NewSessionWithOptions(session.Options{
 		Config: aws.Config{
@@ -64,5 +79,9 @@ func main() {
 		fmt.Println(*message.Body)
 
 		fmt.Println(len(chMessages))
+
+		if err := DeleteMessage(sess, queueUrl, message); err != nil {
+			log.Println("Erro ao excluir a mensagem: ", err.Error())
+		}
 	}
 }
